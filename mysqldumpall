@@ -1,0 +1,389 @@
+#!/usr/bin/perl
+#===============================================================================
+#
+# NAME
+#     mysqldumpall - dump all you databases and grants in a semi sane way
+#
+# SYNOPSIS
+#     mysqldumpall [--rsnapshot] [-o=<backup output folder>] [--help|usage]
+#     [-z|--compress] [--time_fmt=<strftime format>] [-f|--config=<config
+#     file>]
+#
+# DESCRIPTION
+#     mysqldumpall is meant as a non-interactive mysql dumping tool
+#
+# OPTIONS AND CONFIG
+#     * [ --help | --usage ]
+#         Show some help/usage information
+#
+#     * [ --rsnapshot ]
+#         configfile option: rsnapshot
+#
+#         Create a timestamp free dump suitable for e.g. rsnapshot use.
+#
+#     * [ -o=<directory> ]
+#         configfile option: backup_folder
+#
+#         Select a diffrent backup folder
+#
+#     * [ -z | --compress ]
+#         configfile option: compress
+#
+#         Compress the output files
+#
+#     * [ --time_fmt=<string> ]
+#         configfile option: time_fmt
+#
+#         Altername timestamp for the filename.
+#
+#     * [ -f | --config=<string> ]
+#         Select a diffrent configfile
+#
+#   EXAMPLE CONFIG
+#       [main]
+#       rsnapshot = yes
+#       compress = yes
+#       time_fmt = %Y-%m-%d
+#       backup_folder = /var/backups
+#
+#       [database]
+#       user = root
+#       password = g0dm0d3
+#       host = localhost
+#
+# SEE ALSO
+#     MySQL grants dump code used from Beat Vontobel
+#     <http://forge.mysql.com/snippets/view.php?id=12>
+#
+# AUTHOR
+#     John van Zantvoort, <snl.jydawg@gmail.com>
+#
+# CREATED
+#     09/09/2007 11:40:36 AM CEST
+#
+#===============================================================================
+
+use strict;
+use warnings;
+use DBI;
+use POSIX qw( strftime );
+use Sys::Syslog;
+use Data::Dumper;
+use Getopt::Long;
+
+# CONSTANTS
+my $dsn           = "dbi:mysql:dbname=mysql";
+my $user_pattern  = '%';
+my $host_pattern  = '%';
+
+
+# VARIABLES
+my $rsnapshot = undef; # create an rsnapshot complian backup
+my $mycnf_file;
+my $backup_folder;
+my $help;
+my $compress;
+my $time_fmt;
+my %config;
+my $user;
+my $password;
+my $dbh;
+my $ext;
+
+my $mysqldump_command_fmt = '/usr/bin/mysqldump --quote-names --lock-tables ' .
+	'-u %s -p%s --flush-logs --complete-insert --add-drop-table ' .
+	'--result-file="%s" %s';
+
+my $compress_command_fmt = '/bin/gzip %s';
+
+#===  FUNCTION  ================================================================
+#         NAME:  read_ini
+#  DESCRIPTION:  reads a config file and returns a referenced hash of the
+#                contentse
+# PARAMETER  1:  <file name>
+#      RETURNS:  <hash>
+#===============================================================================
+sub read_ini {
+        my( $file ) = @_;
+        local $/ = undef;
+        my %retv;
+        my $ns   = '_';
+        unless( open( CFG, $file ) ) {
+                die( "read_ini: cannot open file: $file, $!" );
+        }
+        my $contents = <CFG>;
+        close( CFG );
+
+        foreach ( split /(?:\015{1,2}\012|\015|\012)/, $contents ) {
+                next if /^\s*(?:\#|\;|$)/;
+                if ( /^\s*\[(.+?)\]\s*$/ ) { $ns = $1; next; }
+                if ( /^\s*([^=]+?)\s*=\s*(.*?)\s*$/ ) {
+                        $retv{ $ns }{ $1 } = $2;
+                        next;
+                }
+        }
+        return( %retv );
+}
+
+#===  FUNCTION  ================================================================
+#         NAME:  SystemWithCheck
+#  DESCRIPTION:  does a 'system' call with a bunch of checks
+# PARAMETER  1:  a list of the command that is supposed to be executed
+#      RETURNS:  1 if all when well undef if not
+#===============================================================================
+sub SystemWithCheck {
+        my @cmnd = @_;
+        my $msg_string = join( " ", "SystemWithCheck", @cmnd );
+        if( system( @cmnd ) != 0 ) {
+                if( $? == -1 ) {
+                        syslog( 'err', "%s: failed to execute: %m", $msg_string );
+                } elsif( $? & 127 ) {
+                        syslog( 'err', '%s: %s',
+                                sprintf( "%s: child died with signal %d, %s coredump",
+                                $msg_string, ($? & 127), ($? & 128) ? 'with' : 'whitout' ) );
+                } else {
+                        syslog( 'notice', '%s: child exited with value %d', $msg_string, $? >> 8 );
+                }
+                return ( undef );
+        } else {
+                return ( 1 );
+        }
+}
+
+#===  FUNCTION  ================================================================
+#         NAME:  help
+#  DESCRIPTION:  help?
+# PARAMETER  1:  none
+#      RETURNS:  nada
+#===============================================================================
+sub help {
+	print "USAGE:\n";
+	print "\t$0 [--rsnapshot] [-o=<backup output folder>] [--help|usage]\n";
+	print "\t\t [-z|--compress] [--time_fmt=<strftime format>] [-f|--config=<config file>]\n\n";
+	exit;
+}
+
+#
+# Main
+#
+
+GetOptions (
+	'rsnapshot'  => \$rsnapshot,
+	'o=s'        => \$backup_folder,
+	'help|usage' => \$help,
+	'z|compress' => \$compress,
+	'time_fmt=s' => \$time_fmt,
+	'f|config=s' => \$mycnf_file
+);
+
+help if( $help );
+$mycnf_file    = $mycnf_file ? $mycnf_file : '/etc/adm/mysqldumpall.cfg';
+%config        = read_ini( $mycnf_file );
+$user          = $config{'database'}{'user'};
+$password      = $config{'database'}{'password'};
+
+# if the command line is not used but
+# there is an entry in the config file
+# check it.
+# --------------------------------------
+if( ! $rsnapshot ) {
+	if(
+		( exists $config{ 'main' }{ 'rsnapshot' } ) &&
+		( $config{ 'main' }{ 'rsnapshot' } =~ /(on|yes|1)/i )
+	) {
+		$rsnapshot = 1;
+	}
+}
+
+if( ! $compress ) {
+	if(
+		( exists $config{ 'main' }{ 'compress' } ) &&
+		( $config{ 'main' }{ 'compress' } =~ /(on|yes|1)/i )
+	) {
+		$compress = 1;
+	}
+}
+
+if( ! $backup_folder ) {
+	if( exists $config{ 'main' }{ 'backup_folder' } ) {
+		$backup_folder = $config{ 'main' }{ 'backup_folder' };
+	}
+	if( ! -d "$backup_folder" ) {
+		print "ERROR: Backup folder \"$backup_folder\" does not exist\n";
+		exit;
+	}
+}
+
+if( ! $time_fmt ) {
+	if( exists $config{ 'main' }{ 'time_fmt' } ) {
+		$time_fmt = $config{ 'main' }{ 'time_fmt' };
+	}
+	if( $time_fmt !~ /\%/ ) {
+		print "ERROR: Backup timeformat \"$time_fmt\" is not valid\n";
+		exit;
+	}
+}
+
+# add the optional time string
+# --------------------------------------
+if( ! $rsnapshot ) {
+	$ext = strftime( $time_fmt, localtime( time() ) );
+	$ext .= ".";
+
+}
+$ext .= 'sql';
+
+$dbh = DBI->connect( $dsn, $user, $password, { RaiseError => 1 });
+die( $DBI::errstr ) if( ! $dbh );
+
+#
+# Dump the mysql grants
+# --------------------------------------
+unless( open( GRANTS, ">${backup_folder}/grants.${ext}" ) ) {
+	die "Cannot open ${backup_folder}/grants.${ext}: $!\n";
+}
+
+if(my $info = $dbh->selectrow_arrayref("SELECT NOW(), VERSION()")) {
+	print GRANTS "-- Grants for pattern $user_pattern\@$host_pattern extracted by $0\n";
+	print GRANTS "-- ${$info}[0] (MySQL ${$info}[1])\n\n";
+} else {
+    die($dbh->errstr."\n");
+}
+
+my $userQuery  = $dbh->prepare("SELECT user, host FROM mysql.user ".
+                      "WHERE user LIKE ? AND host LIKE ? ORDER BY user, host");
+my $grantQuery = $dbh->prepare("SHOW GRANTS FOR ?@?");
+
+$userQuery->execute($user_pattern, $host_pattern)
+	or die($dbh->errstr."\n");
+
+while(my $ud = $userQuery->fetchrow_arrayref()) {
+	print GRANTS "-- ${$ud}[0]\@${$ud}[1]\n";
+	if($grantQuery->execute(${$ud}[0], ${$ud}[1])) {
+		while(my $grant = $grantQuery->fetchrow_arrayref) {
+			print GRANTS ${$grant}[0];
+			print GRANTS ";\n";
+		}
+	} else {
+		print GRANTS "-- Error: Couldn't execute SHOW GRANTS (".$dbh->errstr.")\n";
+	}
+	print GRANTS "\n";
+}
+close( GRANTS );
+
+
+#
+# Get a list of the databases
+# --------------------------------------
+my $sth = $dbh->prepare( "SHOW DATABASES" );
+
+$sth->execute();
+
+while( my $row = $sth->fetchrow_hashref() ) {
+	my $Database = $row->{'Database'};
+	next if(
+		( $Database =~ /mysql/ ) ||
+		( $Database =~ /information_schema/ )
+	);
+	my $output = "${backup_folder}/${Database}.${ext}";
+	my $command = sprintf $mysqldump_command_fmt, $user, $password, $output, $Database;
+	unless( SystemWithCheck( $command ) ) {
+		print "Backup failed\n";
+		next;
+	}
+	if( $compress ) {
+		if( -f "${output}.gz" ) {
+			unlink( "${output}.gz" );
+		}
+		$command = sprintf( $compress_command_fmt, $output );
+		unless( SystemWithCheck( $command ) ) {
+			print "Backup compression failed\n";
+			next;
+		}
+	}
+}
+
+$dbh->disconnect;
+
+__END__
+
+=head1 NAME
+
+mysqldumpall - dump all you databases and grants in a semi sane way
+
+=head1 SYNOPSIS
+
+B<mysqldumpall> [--rsnapshot] [-o=E<lt>backup output folderE<gt>] [--help|usage]
+[-z|--compress] [--time_fmt=E<lt>strftime formatE<gt>] [-f|--config=E<lt>config fileE<gt>]
+
+=head1 DESCRIPTION
+
+B<mysqldumpall> is meant as a non-interactive mysql dumping tool. It can be used
+to keep an archive of "past versions" or to use in combination with e.g.
+rsnapshot. It's a Q&D script so no doubt it can be revamped thoroughly.
+
+=head1 OPTIONS AND CONFIG
+
+=over 4
+
+=item * [ --help | --usage ]
+
+Show some help/usage information
+
+=item * [ --rsnapshot ]
+
+configfile option: B<rsnapshot>
+
+Create a timestamp free dump suitable for e.g. rsnapshot use.
+
+=item * [ -o=<directory> ]
+
+configfile option: B<backup_folder>
+
+Select a diffrent backup folder
+
+=item * [ -z | --compress ]
+
+configfile option: B<compress>
+
+Compress the output files
+
+=item * [ --time_fmt=<string> ]
+
+configfile option: B<time_fmt>
+
+Altername timestamp for the filename.
+
+=item * [ -f | --config=E<lt>stringE<gt> ]
+
+Select a diffrent configfile
+
+=back
+
+=head2 EXAMPLE CONFIG
+
+  [main]
+  rsnapshot = yes
+  compress = yes
+  time_fmt = %Y-%m-%d
+  backup_folder = /var/backups
+  
+  [database]
+  user = root
+  password = g0dm0d3
+  host = localhost
+
+
+=head1 SEE ALSO
+
+MySQL grants dump code used from Beat Vontobel
+L<http://forge.mysql.com/snippets/view.php?id=12>
+
+=head1 AUTHOR
+
+John van Zantvoort, E<lt>snl.jydawg@gmail.comE<gt>
+
+
+=cut
+
+
