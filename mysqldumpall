@@ -52,11 +52,14 @@
 #       host = localhost
 #
 # SEE ALSO
+#
+#     http://mysqldumpall.sourceforge.net/ <homepage>
+#
 #     MySQL grants dump code used from Beat Vontobel
 #     <http://forge.mysql.com/snippets/view.php?id=12>
 #
 # AUTHOR
-#     John van Zantvoort, <snl.jydawg@gmail.com>
+#     John van Zantvoort, <snl.jydawg AT G mail.com>
 #
 # CREATED
 #     09/09/2007 11:40:36 AM CEST
@@ -195,6 +198,9 @@ if( ! $rsnapshot ) {
 	}
 }
 
+# check if we need to compress the
+# output
+# --------------------------------------
 if( ! $compress ) {
 	if(
 		( exists $config{ 'main' }{ 'compress' } ) &&
@@ -204,16 +210,25 @@ if( ! $compress ) {
 	}
 }
 
+# Select an output folder
+# --------------------------------------
 if( ! $backup_folder ) {
 	if( exists $config{ 'main' }{ 'backup_folder' } ) {
 		$backup_folder = $config{ 'main' }{ 'backup_folder' };
 	}
-	if( ! -d "$backup_folder" ) {
-		print "ERROR: Backup folder \"$backup_folder\" does not exist\n";
-		exit;
-	}
+} else {
+	$backup_folder = '/var/backups';
+
 }
 
+if( ! -d "$backup_folder" ) {
+	print "ERROR: Backup folder \"$backup_folder\" does not exist\n";
+	exit;
+}
+
+
+# See if we have a time string
+# --------------------------------------
 if( ! $time_fmt ) {
 	if( exists $config{ 'main' }{ 'time_fmt' } ) {
 		$time_fmt = $config{ 'main' }{ 'time_fmt' };
@@ -356,7 +371,7 @@ Altername timestamp for the filename.
 
 =item * [ -f | --config=E<lt>stringE<gt> ]
 
-Select a diffrent configfile
+Select a diffrent configfile (default: F</etc/adm/mysqldumpall.cfg>)
 
 =back
 
@@ -376,14 +391,19 @@ Select a diffrent configfile
 
 =head1 SEE ALSO
 
+L<date>
+
+http://mysqldumpall.sourceforge.net/ E<lt>homepageE<gt>
+
 MySQL grants dump code used from Beat Vontobel
 L<http://forge.mysql.com/snippets/view.php?id=12>
 
 =head1 AUTHOR
 
-John van Zantvoort, E<lt>snl.jydawg@gmail.comE<gt>
+John van Zantvoort, E<lt>snl.jydawg AT G mail.comE<gt>
 
 
 =cut
 
 
+# overwritten.
