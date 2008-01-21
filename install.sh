@@ -149,7 +149,7 @@ read RESPONSE
 [[ "${RESPONSE}x" = "x" ]] || TIME_FMT=$RESPONSE
 RESPONSE=
 
-echo -n "Set backup folder format [${BACKUP_FOLDER}]: "
+echo -n "Set backup folder [${BACKUP_FOLDER}]: "
 read RESPONSE
 [[ "${RESPONSE}x" = "x" ]] || BACKUP_FOLDER=$RESPONSE
 RESPONSE=

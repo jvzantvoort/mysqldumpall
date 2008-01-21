@@ -93,11 +93,11 @@ my $password;
 my $dbh;
 my $ext;
 
-my $mysqldump_command_fmt = '/usr/bin/mysqldump --quote-names --lock-tables ' .
+my $mysqldump_command_fmt = '@MYSQLDUMP@ --quote-names --lock-tables ' .
 	'-u %s -p%s --flush-logs --complete-insert --add-drop-table ' .
 	'--result-file="%s" %s';
 
-my $compress_command_fmt = '/bin/gzip %s';
+my $compress_command_fmt = '@GZIP@ %s';
 
 #===  FUNCTION  ================================================================
 #         NAME:  read_ini
@@ -180,7 +180,7 @@ GetOptions (
 );
 
 help if( $help );
-$mycnf_file    = $mycnf_file ? $mycnf_file : '/etc/adm/mysqldumpall.cfg';
+$mycnf_file    = $mycnf_file ? $mycnf_file : '@CONFIG_FOLDER@/mysqldumpall.cfg';
 %config        = read_ini( $mycnf_file );
 $user          = $config{'database'}{'user'};
 $password      = $config{'database'}{'password'};
@@ -377,7 +377,7 @@ Altername timestamp for the filename.
 
 =item * [ -f | --config=E<lt>stringE<gt> ]
 
-Select a diffrent configfile (default: F</etc/adm/mysqldumpall.cfg>)
+Select a diffrent configfile (default: F<@CONFIG_FOLDER@/mysqldumpall.cfg>)
 
 =back
 
