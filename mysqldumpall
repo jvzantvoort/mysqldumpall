@@ -24,7 +24,7 @@
 #     * [ -o=<directory> ]
 #         configfile option: backup_folder
 #
-#         Select a diffrent backup folder
+#         Select a different backup folder
 #
 #     * [ -z | --compress ]
 #         configfile option: compress
@@ -37,7 +37,7 @@
 #         Altername timestamp for the filename.
 #
 #     * [ -f | --config=<string> ]
-#         Select a diffrent configfile
+#         Select a different configfile
 #
 #   EXAMPLE CONFIG
 #       [main]
@@ -81,7 +81,7 @@ my $host_pattern  = '%';
 
 
 # VARIABLES
-my $rsnapshot = undef; # create an rsnapshot complian backup
+my $rsnapshot = undef; # create an rsnapshot compliant backup
 my $mycnf_file;
 my $backup_folder;
 my $help;
@@ -102,7 +102,7 @@ my $compress_command_fmt = '/bin/gzip %s';
 #===  FUNCTION  ================================================================
 #         NAME:  read_ini
 #  DESCRIPTION:  reads a config file and returns a referenced hash of the
-#                contentse
+#                contents
 # PARAMETER  1:  <file name>
 #      RETURNS:  <hash>
 #===============================================================================
@@ -249,7 +249,10 @@ if( ! $rsnapshot ) {
 $ext .= 'sql';
 
 $dbh = DBI->connect( $dsn, $user, $password, { RaiseError => 1 });
-die( $DBI::errstr ) if( ! $dbh );
+
+if( ! $dbh ) {
+	syslog( 'err', "database failed to initialize: %s", $DBI::errstr );
+}
 
 #
 # Dump the mysql grants
@@ -281,6 +284,7 @@ while(my $ud = $userQuery->fetchrow_arrayref()) {
 		}
 	} else {
 		print GRANTS "-- Error: Couldn't execute SHOW GRANTS (".$dbh->errstr.")\n";
+		syslog( 'err', "Error: Couldn't execute SHOW GRANTS (%s)", $dbh->errstr );
 	}
 	print GRANTS "\n";
 }
@@ -303,16 +307,18 @@ while( my $row = $sth->fetchrow_hashref() ) {
 	my $output = "${backup_folder}/${Database}.${ext}";
 	my $command = sprintf $mysqldump_command_fmt, $user, $password, $output, $Database;
 	unless( SystemWithCheck( $command ) ) {
-		print "Backup failed\n";
+		syslog( 'err', "Backup of $Database failed" );
 		next;
 	}
 	if( $compress ) {
 		if( -f "${output}.gz" ) {
-			unlink( "${output}.gz" );
+			unless( unlink( "${output}.gz" ) ) {
+				syslog( 'err', "Failed to remove ${output}.gz" );
+			}
 		}
 		$command = sprintf( $compress_command_fmt, $output );
 		unless( SystemWithCheck( $command ) ) {
-			print "Backup compression failed\n";
+			syslog( 'err', "Failed to compress $output" );
 			next;
 		}
 	}
