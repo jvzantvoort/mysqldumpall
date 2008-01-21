@@ -149,21 +149,13 @@ read RESPONSE
 [[ "${RESPONSE}x" = "x" ]] || TIME_FMT=$RESPONSE
 RESPONSE=
 
-echo -n "Set time format [${BACKUP_FOLDER}]: "
+echo -n "Set backup folder format [${BACKUP_FOLDER}]: "
 read RESPONSE
 [[ "${RESPONSE}x" = "x" ]] || BACKUP_FOLDER=$RESPONSE
 RESPONSE=
 
 
 header "Configuration file - database"
-# --------------------------------------
-# DBUSER
-# --------------------------------------
-echo -n "database user [${DBUSER}]: "
-read RESPONSE
-[[ "${RESPONSE}x" = "x" ]] || DBUSER=$RESPONSE
-RESPONSE=
-
 # --------------------------------------
 # DBHOST
 # --------------------------------------
@@ -173,9 +165,17 @@ read RESPONSE
 RESPONSE=
 
 # --------------------------------------
+# DBUSER
+# --------------------------------------
+echo -n "database user [${DBUSER}]: "
+read RESPONSE
+[[ "${RESPONSE}x" = "x" ]] || DBUSER=$RESPONSE
+RESPONSE=
+
+# --------------------------------------
 # DBPASSWD
 # --------------------------------------
-echo -n "database passwd [${DBPASSWD}]: "
+echo -n "database passwd: "
 stty -echo
 read RESPONSE
 stty echo 
@@ -203,7 +203,7 @@ fi
 
 if [ ! -d "${CONFIG_FOLDER}" ]
 then
-  install -d -g=root -o=root -m=700 $CONFIG_FOLDER
+  install -d -g root -o root -m 0700 $CONFIG_FOLDER
 else
   echo "config folder $CONFIG_FOLDER exists"
 fi
@@ -228,7 +228,7 @@ echo "host = $DBHOST" >>$OF
 
 if [ ! -d "${BACKUP_FOLDER}" ]
 then
-  install -d -g=root -o=root -m=700 $BACKUP_FOLDER
+  install -d -g root -o root -m 0700 $BACKUP_FOLDER
 else
   echo "backup folder $BACKUP_FOLDER exists"
 fi
@@ -236,5 +236,5 @@ fi
 update_script mysqldumpall
 
 pod2man mysqldumpall > mysqldumpall.1
-install -g=root -o=root -m=755 mysqldumpall $SCRIPT_FILE
-install -g=root -o=root -m=644 mysqldumpall.1 $MANUAL_FILE
+install -g root -o root -m 0755 mysqldumpall $SCRIPT_FILE
+install -g root -o root -m 0644 mysqldumpall.1 $MANUAL_FILE
