@@ -1,0 +1,20 @@
+# ------------------------------------------------------------------------------
+#
+# This will result in seven sets of files. The current day will be automaticly
+# overwritten.
+# 
+# example results:
+#   /var/backups/grants.Mon.sql
+#   /var/backups/<database>.Mon.sql.gz
+#
+# ------------------------------------------------------------------------------
+[main]
+rsnapshot = no
+compress = yes
+time_fmt = %a
+backup_folder = /var/backups
+
+[database]
+user = root
+password = g0dm0d3
+host = localhost

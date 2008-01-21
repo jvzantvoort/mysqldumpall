@@ -1,0 +1,20 @@
+# ------------------------------------------------------------------------------
+#
+# This will result in a timestamped set of files older versions will have to be
+# cleaned up.
+#
+# example results:
+#   /var/backups/grants.2008-01-21.sql
+#   /var/backups/<database>.2008-01-21.sql.gz
+#
+# ------------------------------------------------------------------------------
+[main]
+rsnapshot = no
+compress = yes
+time_fmt = %Y-%m-%d
+backup_folder = /var/backups
+
+[database]
+user = root
+password = g0dm0d3
+host = localhost
