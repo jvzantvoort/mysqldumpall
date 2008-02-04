@@ -30,7 +30,12 @@
 #         configfile option: compress
 #
 #         Compress the output files
-#
+# 
+#     * [ --extendedinsert | --noextendedinsert ]
+#         configfile option: extended-insert
+# 
+#         Turn on/off extended insert dumps (default is on)
+# 
 #     * [ --time_fmt=<string> ]
 #         configfile option: time_fmt
 #
@@ -45,6 +50,7 @@
 #       compress = yes
 #       time_fmt = %Y-%m-%d
 #       backup_folder = /var/backups
+#       extended-insert = no
 #
 #       [database]
 #       user = root
@@ -76,9 +82,6 @@ use Getopt::Long;
 
 # CONSTANTS
 my $dsn           = "dbi:mysql:dbname=mysql";
-my $user_pattern  = '%';
-my $host_pattern  = '%';
-
 
 # VARIABLES
 my $rsnapshot = undef; # create an rsnapshot compliant backup
@@ -92,12 +95,11 @@ my $user;
 my $password;
 my $dbh;
 my $ext;
+my $extendedinsert = 1; # default is on
 
-my $mysqldump_command_fmt = '@MYSQLDUMP@ --quote-names --lock-tables ' .
-	'-u %s -p%s --flush-logs --complete-insert --add-drop-table ' .
-	'--result-file="%s" %s';
-
-my $compress_command_fmt = '@GZIP@ %s';
+my $mysqldump_command = '@MYSQLDUMP@';
+my $mysqldump_opts    = "--quote-names --lock-tables --flush-logs --complete-insert --add-drop-table";
+my $compress_command = '@GZIP@';
 
 #===  FUNCTION  ================================================================
 #         NAME:  read_ini
@@ -154,6 +156,94 @@ sub SystemWithCheck {
 }
 
 #===  FUNCTION  ================================================================
+#         NAME:  dumpgrants
+#  DESCRIPTION:  dump's the grants to a file
+# PARAMETER  1:  <database object>
+# PARAMETER  2:  <output file>
+#      RETURNS:  nada
+#===============================================================================
+sub dumpgrants {
+	my( $dbh, $outputfile ) = @_;
+
+	unless( open( GRANTS, ">${outputfile}" ) ) {
+		die "Cannot open ${outputfile}: $!\n";
+	}
+
+	if(my $info = $dbh->selectrow_arrayref("SELECT NOW(), VERSION()")) {
+		print GRANTS "-- Grants extracted by $0\n";
+		print GRANTS "-- ${$info}[0] (MySQL ${$info}[1])\n\n";
+	} else {
+		die($dbh->errstr."\n");
+	}
+
+	my $userQuery  = $dbh->prepare("SELECT user, host FROM mysql.user ORDER BY user, host");
+	my $grantQuery = $dbh->prepare("SHOW GRANTS FOR ?@?");
+
+	$userQuery->execute() or die($dbh->errstr."\n");
+
+	while(my $ud = $userQuery->fetchrow_arrayref()) {
+		print GRANTS "-- ${$ud}[0]\@${$ud}[1]\n";
+		if($grantQuery->execute(${$ud}[0], ${$ud}[1])) {
+			while(my $grant = $grantQuery->fetchrow_arrayref) {
+				print GRANTS ${$grant}[0];
+				print GRANTS ";\n";
+			}
+		} else {
+			print GRANTS "-- Error: Couldn't execute SHOW GRANTS (".$dbh->errstr.")\n";
+			syslog( 'err', "Error: Couldn't execute SHOW GRANTS (%s)", $dbh->errstr );
+		}
+		print GRANTS "\n";
+	}
+	close( GRANTS );
+}
+
+#===  FUNCTION  ================================================================
+#         NAME:  mysqldump
+#  DESCRIPTION:  does the actual dumping
+# PARAMETER  1:  <username>
+# PARAMETER  2:  <password>
+# PARAMETER  3:  <database>
+# PARAMETER  4:  <output>
+# PARAMETER  5:  <mysqldump options>
+#      RETURNS:  1 for oke, undef for not oke
+#===============================================================================
+sub mysqldump {
+	my( $user, $password, $database, $output, $dump_opts ) = @_;
+
+	my $command = "$mysqldump_command $dump_opts";
+	$command .= " -u${user} -p${password} --result-file=\"${output}\"";
+	$command .= " ${database}";
+
+	unless( SystemWithCheck( $command ) ) {
+		syslog( 'err', "Backup of $database failed" );
+		return undef;
+	}
+	return 1;
+}
+
+#===  FUNCTION  ================================================================
+#         NAME:  compress
+#  DESCRIPTION:  compresses files
+# PARAMETER  1:  <filename>
+#      RETURNS:  1 for oke, undef for not oke
+#===============================================================================
+sub compress {
+	my $file = shift;
+	if( -f "${file}.gz" ) {
+		unless( unlink( "${file}.gz" ) ) {
+			syslog( 'err', "Failed to remove ${file}.gz" );
+		}
+	}
+
+	my $command = "$compress_command $file";
+	unless( SystemWithCheck( $command ) ) {
+		syslog( 'err', "Failed to compress $file" );
+		return undef;
+	}
+	return 1;
+}
+
+#===  FUNCTION  ================================================================
 #         NAME:  help
 #  DESCRIPTION:  help?
 # PARAMETER  1:  none
@@ -162,7 +252,9 @@ sub SystemWithCheck {
 sub help {
 	print "USAGE:\n";
 	print "\t$0 [--rsnapshot] [-o=<backup output folder>] [--help|usage]\n";
-	print "\t\t [-z|--compress] [--time_fmt=<strftime format>] [-f|--config=<config file>]\n\n";
+	print "\t\t [-z|--compress] [--time_fmt=<strftime format>]\n";
+	print "\t\t [ --extendedinsert | --noextendedinsert ]\n";
+	print "\t\t [-f|--config=<config file>]\n\n";
 	exit;
 }
 
@@ -176,6 +268,7 @@ GetOptions (
 	'help|usage' => \$help,
 	'z|compress' => \$compress,
 	'time_fmt=s' => \$time_fmt,
+	'extendedinsert!' => \$extendedinsert,
 	'f|config=s' => \$mycnf_file
 );
 
@@ -239,6 +332,18 @@ if( ! $time_fmt ) {
 	}
 }
 
+# turn on/off extended-insert 
+# --------------------------------------
+if(
+	( ! $extendedinsert ) ||
+	(
+		( exists $config{ 'main' }{ 'extended-insert' } ) &&
+		( $config{ 'main' }{ 'extended-insert' } =~ /(no|off|false)/i )
+	)
+) {
+	$mysqldump_opts = " --skip-extended-insert $mysqldump_opts";
+}
+
 # add the optional time string
 # --------------------------------------
 if( ! $rsnapshot ) {
@@ -257,39 +362,9 @@ if( ! $dbh ) {
 #
 # Dump the mysql grants
 # --------------------------------------
-unless( open( GRANTS, ">${backup_folder}/grants.${ext}" ) ) {
-	die "Cannot open ${backup_folder}/grants.${ext}: $!\n";
-}
+dumpgrants( $dbh, "${backup_folder}/grants.${ext}" );
 
-if(my $info = $dbh->selectrow_arrayref("SELECT NOW(), VERSION()")) {
-	print GRANTS "-- Grants for pattern $user_pattern\@$host_pattern extracted by $0\n";
-	print GRANTS "-- ${$info}[0] (MySQL ${$info}[1])\n\n";
-} else {
-    die($dbh->errstr."\n");
-}
-
-my $userQuery  = $dbh->prepare("SELECT user, host FROM mysql.user ".
-                      "WHERE user LIKE ? AND host LIKE ? ORDER BY user, host");
-my $grantQuery = $dbh->prepare("SHOW GRANTS FOR ?@?");
-
-$userQuery->execute($user_pattern, $host_pattern)
-	or die($dbh->errstr."\n");
-
-while(my $ud = $userQuery->fetchrow_arrayref()) {
-	print GRANTS "-- ${$ud}[0]\@${$ud}[1]\n";
-	if($grantQuery->execute(${$ud}[0], ${$ud}[1])) {
-		while(my $grant = $grantQuery->fetchrow_arrayref) {
-			print GRANTS ${$grant}[0];
-			print GRANTS ";\n";
-		}
-	} else {
-		print GRANTS "-- Error: Couldn't execute SHOW GRANTS (".$dbh->errstr.")\n";
-		syslog( 'err', "Error: Couldn't execute SHOW GRANTS (%s)", $dbh->errstr );
-	}
-	print GRANTS "\n";
-}
-close( GRANTS );
-
+compress( "${backup_folder}/grants.${ext}"  ) if( $compress );
 
 #
 # Get a list of the databases
@@ -305,23 +380,12 @@ while( my $row = $sth->fetchrow_hashref() ) {
 		( $Database =~ /information_schema/ )
 	);
 	my $output = "${backup_folder}/${Database}.${ext}";
-	my $command = sprintf $mysqldump_command_fmt, $user, $password, $output, $Database;
-	unless( SystemWithCheck( $command ) ) {
-		syslog( 'err', "Backup of $Database failed" );
+
+	unless( mysqldump( $user, $password, $Database, $output, $mysqldump_opts ) ) {
 		next;
 	}
-	if( $compress ) {
-		if( -f "${output}.gz" ) {
-			unless( unlink( "${output}.gz" ) ) {
-				syslog( 'err', "Failed to remove ${output}.gz" );
-			}
-		}
-		$command = sprintf( $compress_command_fmt, $output );
-		unless( SystemWithCheck( $command ) ) {
-			syslog( 'err', "Failed to compress $output" );
-			next;
-		}
-	}
+
+	compress( $output ) if( $compress );
 }
 
 $dbh->disconnect;
@@ -375,6 +439,12 @@ configfile option: B<time_fmt>
 
 Altername timestamp for the filename.
 
+=item * [ --extendedinsert | --noextendedinsert ]
+
+configfile option: B<extended-insert>
+
+Turn on/off extended insert dumps (default is on)
+
 =item * [ -f | --config=E<lt>stringE<gt> ]
 
 Select a diffrent configfile (default: F<@CONFIG_FOLDER@/mysqldumpall.cfg>)
@@ -388,6 +458,7 @@ Select a diffrent configfile (default: F<@CONFIG_FOLDER@/mysqldumpall.cfg>)
   compress = yes
   time_fmt = %Y-%m-%d
   backup_folder = /var/backups
+  extended-insert = no
   
   [database]
   user = root
