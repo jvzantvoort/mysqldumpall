@@ -9,6 +9,10 @@
 #     [-z|--compress] [--time_fmt=<strftime format>] [-f|--config=<config
 #     file>]
 #
+# VERSION
+#
+#     $Rev$
+#
 # DESCRIPTION
 #     mysqldumpall is meant as a non-interactive mysql dumping tool
 #
