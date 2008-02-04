@@ -30,7 +30,7 @@
 %define distver %(release="`rpm -q --queryformat='%{VERSION}' %{dist}-release 2> /dev/null | tr . : | sed s/://g`" ; if test $? != 0 ; then release="" ; fi ; echo "$release")
 
 # Derive the version from the file's svn tag
-%define svn_version %(echo '$Rev$'| awk '{ print $2 }')
+%define svn_version %(awk -F '$' '/\$Rev\:/ { print $2 }' mysqldumpall | awk '{ print $NF }')
 
 # cmdb server's root
 %define config_folder /etc/adm
