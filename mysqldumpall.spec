@@ -30,7 +30,7 @@
 %define distver %(release="`rpm -q --queryformat='%{VERSION}' %{dist}-release 2> /dev/null | tr . : | sed s/://g`" ; if test $? != 0 ; then release="" ; fi ; echo "$release")
 
 # Derive the version from the file's svn tag
-%define svn_version %(awk -F '$' '/\$Rev\:/ { print $2 }' mysqldumpall | awk '{ print $NF }')
+%define svn_version %(echo '$Rev$'| awk '{ print $2 }')
 
 # cmdb server's root
 %define config_folder /etc/adm
@@ -103,3 +103,42 @@ thoroughly.
 %{_bindir}/*
 
 %changelog
+* Thu Feb 07 2008 John van Zantvoort
+- trunk/mysqldumpall.spec:
+  updated changelog and revision handling
+
+* Mon Feb 04 2008 John van Zantvoort 
+- trunk/mysqldumpall: Moved some of the functionality to subroutines.
+  Added extended insert support.
+
+* Tue 22 Jan 2008 John van Zantvoort
+- trunk/mysqldumpall.spec
+  - initial version of the spec file
+  - added keywords
+
+* Mon 21 Jan 2008 John van Zantvoort
+- trunk/install.sh:
+  - added installer script
+  - minor mods
+  - typo's
+- trunk/mysqldumpall:
+  - updated pod and set a default folder for the output.
+  - minor mod
+  - typo's
+- trunk/examples/mysqldumpall.cfg.normal:
+  - added example
+- trunk/examples/mysqldumpall.cfg.weekly: added
+  - added examples
+
+* Fri 18 Jan 2008 John van Zantvoort
+- mysqldumpall:
+  - intial import
+  - minor bugfix in the output filename. And some comment correction
+- branches:
+  - created forgotten branches
+- tags:
+  - created forgotten branches
+- trunk:
+  - created forgotten branches
+- mysqldumpall -> trunk/mysqldumpall:
+  - moved file to correct location
