@@ -102,21 +102,22 @@ thoroughly.
 %config %{config_folder}/*
 %{_bindir}/*
 
+# LC_TIME=en_US date +"%a %b %e %Y"
 %changelog
 * Thu Feb 07 2008 John van Zantvoort
 - trunk/mysqldumpall.spec:
-  updated changelog and revision handling
+  updated changelog and revision handling, fixed typo
 
 * Mon Feb 04 2008 John van Zantvoort 
 - trunk/mysqldumpall: Moved some of the functionality to subroutines.
   Added extended insert support.
 
-* Tue 22 Jan 2008 John van Zantvoort
+* Tue Jan 22 2008 John van Zantvoort
 - trunk/mysqldumpall.spec
   - initial version of the spec file
   - added keywords
 
-* Mon 21 Jan 2008 John van Zantvoort
+* Mon Jan 21 2008 John van Zantvoort
 - trunk/install.sh:
   - added installer script
   - minor mods
@@ -130,7 +131,7 @@ thoroughly.
 - trunk/examples/mysqldumpall.cfg.weekly: added
   - added examples
 
-* Fri 18 Jan 2008 John van Zantvoort
+* Fri Jan 18 2008 John van Zantvoort
 - mysqldumpall:
   - intial import
   - minor bugfix in the output filename. And some comment correction
