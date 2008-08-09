@@ -82,6 +82,7 @@ use DBI;
 use POSIX qw( strftime );
 use Sys::Syslog;
 use Data::Dumper;
+use File::Spec;
 use Getopt::Long;
 
 # CONSTANTS
@@ -94,6 +95,7 @@ my $backup_folder;
 my $help;
 my $compress;
 my $time_fmt;
+my $by_table;
 my %config;
 my $user;
 my $password;
@@ -113,25 +115,25 @@ my $compress_command = '@GZIP@';
 #      RETURNS:  <hash>
 #===============================================================================
 sub read_ini {
-        my( $file ) = @_;
-        local $/ = undef;
-        my %retv;
-        my $ns   = '_';
-        unless( open( CFG, $file ) ) {
-                die( "read_ini: cannot open file: $file, $!" );
-        }
-        my $contents = <CFG>;
-        close( CFG );
+	my( $file ) = @_;
+	local $/ = undef;
+	my %retv;
+	my $ns   = '_';
+	unless( open( CFG, $file ) ) {
+		die( "read_ini: cannot open file: $file, $!" );
+	}
+	my $contents = <CFG>;
+	close( CFG );
 
-        foreach ( split /(?:\015{1,2}\012|\015|\012)/, $contents ) {
-                next if /^\s*(?:\#|\;|$)/;
-                if ( /^\s*\[(.+?)\]\s*$/ ) { $ns = $1; next; }
-                if ( /^\s*([^=]+?)\s*=\s*(.*?)\s*$/ ) {
-                        $retv{ $ns }{ $1 } = $2;
-                        next;
-                }
-        }
-        return( %retv );
+	foreach ( split /(?:\015{1,2}\012|\015|\012)/, $contents ) {
+		next if /^\s*(?:\#|\;|$)/;
+		if ( /^\s*\[(.+?)\]\s*$/ ) { $ns = $1; next; }
+		if ( /^\s*([^=]+?)\s*=\s*(.*?)\s*$/ ) {
+			$retv{ $ns }{ $1 } = $2;
+			next;
+		}
+	}
+	return( %retv );
 }
 
 #===  FUNCTION  ================================================================
@@ -141,22 +143,44 @@ sub read_ini {
 #      RETURNS:  1 if all when well undef if not
 #===============================================================================
 sub SystemWithCheck {
-        my @cmnd = @_;
-        my $msg_string = join( " ", "SystemWithCheck", @cmnd );
-        if( system( @cmnd ) != 0 ) {
-                if( $? == -1 ) {
-                        syslog( 'err', "%s: failed to execute: %m", $msg_string );
-                } elsif( $? & 127 ) {
-                        syslog( 'err', '%s: %s',
-                                sprintf( "%s: child died with signal %d, %s coredump",
-                                $msg_string, ($? & 127), ($? & 128) ? 'with' : 'whitout' ) );
-                } else {
-                        syslog( 'notice', '%s: child exited with value %d', $msg_string, $? >> 8 );
-                }
-                return ( undef );
-        } else {
-                return ( 1 );
-        }
+	my @cmnd = @_;
+	my $msg_string = join( " ", "SystemWithCheck", @cmnd );
+	if( system( @cmnd ) != 0 ) {
+		if( $? == -1 ) {
+			syslog( 'err', "%s: failed to execute: %m", $msg_string );
+		} elsif( $? & 127 ) {
+			syslog( 'err', '%s: %s',
+				sprintf( "%s: child died with signal %d, %s coredump",
+				$msg_string, ($? & 127), ($? & 128) ? 'with' : 'whitout' ) );
+		} else {
+			syslog( 'notice', '%s: child exited with value %d', $msg_string, $? >> 8 );
+		}
+		return ( undef );
+	} else {
+		return ( 1 );
+	}
+}
+
+#===  FUNCTION  ================================================================
+#         NAME:  mkdirp
+#  DESCRIPTION:  a perl version of 'mkdir -p'
+# PARAMETER  1:  path of the directory that needs to be created
+#      RETURNS:  1 if all when well undef if not
+#===============================================================================
+sub mkdirp {
+	my $path = shift;
+	my @dirs =  File::Spec->splitdir( $path );
+	my $tpath = undef;
+	foreach my $dir ( @dirs ) {
+		$tpath = File::Spec->catdir( $tpath, $dir );
+		if( ! -d "$tpath" ) {
+			unless( mkdir( "$tpath" ) ) {
+				syslog("warning", "cannot create $tpath: $!" );
+				return undef;
+			}
+		}
+	}
+	return 1;
 }
 
 #===  FUNCTION  ================================================================
@@ -202,7 +226,7 @@ sub dumpgrants {
 }
 
 #===  FUNCTION  ================================================================
-#         NAME:  mysqldump
+#         NAME:  mysqldump_by_database
 #  DESCRIPTION:  does the actual dumping
 # PARAMETER  1:  <username>
 # PARAMETER  2:  <password>
@@ -211,7 +235,7 @@ sub dumpgrants {
 # PARAMETER  5:  <mysqldump options>
 #      RETURNS:  1 for oke, undef for not oke
 #===============================================================================
-sub mysqldump {
+sub mysqldump_by_database {
 	my( $user, $password, $database, $output, $dump_opts ) = @_;
 
 	my $command = "$mysqldump_command $dump_opts";
@@ -224,6 +248,63 @@ sub mysqldump {
 	}
 	return 1;
 }
+
+
+#===  FUNCTION  ================================================================
+#         NAME:  mysqldump_by_table
+#  DESCRIPTION:  does the actual dumping
+# PARAMETER  1:  <username>
+# PARAMETER  2:  <password>
+# PARAMETER  3:  <database>
+# PARAMETER  4:  <output>
+# PARAMETER  5:  <mysqldump options>
+#      RETURNS:  1 for oke, undef for not oke
+#===============================================================================
+sub mysqldump_by_table {
+	my( $user, $password, $database, $output, $ext, $dump_opts ) = @_;
+
+	my $dsn = "dbi:mysql:dbname=$database";
+	my @tables;
+
+	if( ! -d $output ) {
+		if( ! mkdirp( $output ) ) {
+			syslog( 'err', "failed to create output dir" );
+			return undef;
+		}
+	}
+
+	my $dbh = DBI->connect( $dsn, $user, $password, { RaiseError => 1 });
+
+	if( ! $dbh ) {
+		syslog( 'err', "database failed to initialize: %s", $DBI::errstr );
+	}
+
+	my $sth = $dbh->prepare( "SHOW TABLES" );
+
+	$sth->execute();
+
+	while( my $row = $sth->fetchrow_arrayref() ) {
+		push @tables, $$row[0];
+	}
+	$dbh->disconnect;
+
+	foreach my $table ( @tables ) {
+		my $command = "$mysqldump_command $dump_opts";
+		$command .= " -u${user} -p${password} --result-file=\"${output}/${table}.${ext}\"";
+		$command .= " ${database} ${table}";
+
+		unless( SystemWithCheck( $command ) ) {
+			syslog( 'err', "Backup of $database failed" );
+			return undef;
+		}
+		compress( "${output}/${table}.${ext}" ) if( $compress );
+	}
+
+
+
+	return 1;
+}
+
 
 #===  FUNCTION  ================================================================
 #         NAME:  compress
@@ -272,6 +353,7 @@ GetOptions (
 	'help|usage' => \$help,
 	'z|compress' => \$compress,
 	'time_fmt=s' => \$time_fmt,
+	't|by_table' => \$by_table,
 	'extendedinsert!' => \$extendedinsert,
 	'f|config=s' => \$mycnf_file
 );
@@ -304,6 +386,17 @@ if( ! $compress ) {
 		( $config{ 'main' }{ 'compress' } =~ /(on|yes|1)/i )
 	) {
 		$compress = 1;
+	}
+}
+
+# check if we need to dump by table
+# --------------------------------------
+if( ! $by_table ) {
+	if(
+		( exists $config{ 'main' }{ 'by_table' } ) &&
+		( $config{ 'main' }{ 'by_table' } =~ /(on|yes|1)/i )
+	) {
+		$by_table = 1;
 	}
 }
 
@@ -379,17 +472,28 @@ $sth->execute();
 
 while( my $row = $sth->fetchrow_hashref() ) {
 	my $Database = $row->{'Database'};
+	my $output;
 	next if(
 		( $Database =~ /mysql/ ) ||
 		( $Database =~ /information_schema/ )
 	);
-	my $output = "${backup_folder}/${Database}.${ext}";
 
-	unless( mysqldump( $user, $password, $Database, $output, $mysqldump_opts ) ) {
-		next;
+	if( ! $by_table ) {
+		$output = "${backup_folder}/${Database}.${ext}";
+
+		unless( mysqldump_by_database( $user, $password, $Database, $output, $mysqldump_opts ) ) {
+			next;
+		}
+
+		compress( $output ) if( $compress );
+	} else {
+		$output = "${backup_folder}/${Database}";
+
+		unless( mysqldump_by_table( $user, $password, $Database, $output, $ext, $mysqldump_opts ) ) {
+			next;
+		}
 	}
 
-	compress( $output ) if( $compress );
 }
 
 $dbh->disconnect;
