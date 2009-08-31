@@ -102,6 +102,7 @@ my $password;
 my $dbh;
 my $ext;
 my $extendedinsert = 1; # default is on
+my $report_size;
 
 my $mysqldump_command = '@MYSQLDUMP@';
 my $mysqldump_opts    = "--quote-names --lock-tables --flush-logs --complete-insert --add-drop-table";
@@ -300,11 +301,39 @@ sub mysqldump_by_table {
 		compress( "${output}/${table}.${ext}" ) if( $compress );
 	}
 
-
-
 	return 1;
 }
 
+sub report_size {
+	my( $user, $password ) = @_;
+	my $dsn = "dbi:mysql:dbname=information_schema";
+	my $sql = <<'EoS';
+SELECT
+table_schema as datname,
+round( sum( data_length + index_length ) / 1024 / 1024, 2 ) as size
+FROM information_schema.TABLES
+GROUP BY table_schema;
+EoS
+	my $dbh = DBI->connect( $dsn, $user, $password, { RaiseError => 1 });
+
+	if( ! $dbh ) {
+		syslog( 'err', "database failed to initialize: %s", $DBI::errstr );
+	}
+
+	my $sth = $dbh->prepare( $sql );
+	my %data;
+	$sth->execute();
+
+	while( my $row = $sth->fetchrow_hashref() ) {
+		$data{$row->{'datname'}} = $row->{'size'};
+	}
+	$sth->finish();
+
+	foreach my $db ( sort {$data{$b}<=>$data{$a}} keys %data ) {
+		my $str = sprintf( "%0.2f Mb", $data{$db} );
+		printf "%-20s %10s\n", $db, $str;
+	}
+}
 
 #===  FUNCTION  ================================================================
 #         NAME:  compress
@@ -355,6 +384,7 @@ GetOptions (
 	'time_fmt=s' => \$time_fmt,
 	't|by_table' => \$by_table,
 	'extendedinsert!' => \$extendedinsert,
+	'r|report'   => \$report_size,
 	'f|config=s' => \$mycnf_file
 );
 
@@ -364,6 +394,10 @@ $mycnf_file    = $mycnf_file ? $mycnf_file : '@CONFIG_FOLDER@/mysqldumpall.cfg';
 $user          = $config{'database'}{'user'};
 $password      = $config{'database'}{'password'};
 
+if( $report_size ) {
+	report_size( $user, $password );
+	exit;
+}
 # if the command line is not used but
 # there is an entry in the config file
 # check it.
@@ -475,6 +509,7 @@ while( my $row = $sth->fetchrow_hashref() ) {
 	my $output;
 	next if(
 		( $Database =~ /mysql/ ) ||
+		( $Database =~ /lost\+found/ ) ||
 		( $Database =~ /information_schema/ )
 	);
 
