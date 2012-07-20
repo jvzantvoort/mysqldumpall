@@ -29,9 +29,6 @@
 
 %define distver %(release="`rpm -q --queryformat='%{VERSION}' %{dist}-release 2> /dev/null | tr . : | sed s/://g`" ; if test $? != 0 ; then release="" ; fi ; echo "$release")
 
-# Derive the version from the file's svn tag
-%define svn_version %(echo '$Rev$'| awk '{ print $2 }')
-
 # cmdb server's root
 %define config_folder /etc/adm
 %define backup_folder /var/backups
@@ -46,13 +43,13 @@
 # --------------------------------------
 Name:      mysqldumpall
 Summary:   a non-interactive mysql dumping tool
-Version:   %{svn_version}
+Version:   1.0.1
 Release:   1.%{disttag}%{distver}
 License:   Artistic/GPL
 Vendor:    John van Zantvoort
-Packager:  John van Zantvoort <snl.jydawg@gmail.com>
+Packager:  John van Zantvoort
 Group:     Applications/System
-Source:    %{name}-%version.tar.gz
+Source:    %{name}-%version.tar.bz2
 Requires:  perl,mysql,gzip,perl-DBD-MySQL
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-build
 BuildRequires: perl,bash,perl-DBD-MySQL
