@@ -1,34 +1,3 @@
-# ------------------------------------------------------------------------------
-#
-# ------------------------------------------------------------------------------
-%define is_mandrake %(test -e /etc/mandrake-release && echo 1 || echo 0)
-%define is_suse %(test -e /etc/SuSE-release && echo 1 || echo 0)
-%define is_fedora %(test -e /etc/fedora-release && echo 1 || echo 0)
-%define is_centos %(( test -e /etc/redhat-release && grep -qi centos /etc/redhat-release ) && echo 1 || echo 0)
-
-%define dist redhat
-%define disttag rh
-
-%if %is_mandrake
-%define dist mandrake
-%define disttag mdk
-%endif
-%if %is_suse
-%define dist suse
-%define disttag suse
-%define kde_path /opt/kde3
-%endif
-%if %is_fedora
-%define dist fedora
-%define disttag rhfc
-%endif
-%if %is_centos
-%define dist centos
-%define disttag centos
-%endif
-
-%define distver %(release="`rpm -q --queryformat='%{VERSION}' %{dist}-release 2> /dev/null | tr . : | sed s/://g`" ; if test $? != 0 ; then release="" ; fi ; echo "$release")
-
 # cmdb server's root
 %define config_folder /etc/adm
 %define backup_folder /var/backups
@@ -44,7 +13,7 @@
 Name:      mysqldumpall
 Summary:   a non-interactive mysql dumping tool
 Version:   1.0.1
-Release:   1.%{disttag}%{distver}
+Release:   1
 License:   Artistic/GPL
 Vendor:    John van Zantvoort
 Packager:  John van Zantvoort
