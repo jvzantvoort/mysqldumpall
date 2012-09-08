@@ -12,7 +12,7 @@
 # --------------------------------------
 Name:      mysqldumpall
 Summary:   a non-interactive mysql dumping tool
-Version:   1.0.1
+Version:   1.0.2
 Release:   1
 License:   Artistic/GPL
 Vendor:    John van Zantvoort
@@ -70,6 +70,9 @@ thoroughly.
 
 # LC_TIME=en_US date +"%a %b %e %Y"
 %changelog
+* Sat Sep 08 2012 John van Zantvoort <John@vanZantvoort.org> 1.0.2-1
+- new package built with tito
+
 * Thu Feb 07 2008 John van Zantvoort
 - trunk/mysqldumpall.spec:
   updated changelog and revision handling, fixed typo
