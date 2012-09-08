@@ -18,7 +18,7 @@ License:   Artistic/GPL
 Vendor:    John van Zantvoort
 Packager:  John van Zantvoort
 Group:     Applications/System
-Source:    %{name}-%version.tar.bz2
+Source:    %{name}-%version.tar.gz
 Requires:  perl,mysql,gzip,perl-DBD-MySQL
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-build
 BuildRequires: perl,bash,perl-DBD-MySQL
